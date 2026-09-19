@@ -1,0 +1,42 @@
+name: CH11 U06 UCM convergence diagnostic
+
+on:
+  push:
+    branches: [ ch11-u06-runtime ]
+    paths:
+      - '.github/ch11_u06_ucm_convergence_diagnostic.py'
+      - '.github/workflows/ch11-u06-ucm-diagnostic.yml'
+      - '.github/ch11_stage5_sequence_protocol_frozen.json'
+
+jobs:
+  ucm-diagnostic:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision exact Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.7'
+      - name: Install exact Stage-5 pins
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==2.5.3 scipy==1.18.1 pandas==3.0.6 torch==2.14.0 statsmodels==0.15.0 arch==8.0.0 matplotlib==3.11.2
+      - name: Verify protocol hash
+        run: |
+          python - <<'PY'
+          import hashlib, pathlib
+          p=pathlib.Path('.github/ch11_stage5_sequence_protocol_frozen.json')
+          h=hashlib.sha256(p.read_bytes()).hexdigest()
+          exp='ed846434ed58c3c0f9b70e5095ae194db6bb953e095bdf04bd66185a958ad283'
+          print(h)
+          assert h==exp
+          PY
+      - name: Run UCM diagnostic
+        run: python .github/ch11_u06_ucm_convergence_diagnostic.py
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ch11-u06-ucm-convergence-diagnostic
+          path: u06_ucm_diag/
