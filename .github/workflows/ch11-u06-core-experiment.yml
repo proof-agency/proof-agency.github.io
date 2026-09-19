@@ -1,0 +1,100 @@
+name: CH11 U06 canonical core experiment
+
+on:
+  push:
+    branches:
+      - ch11-u06-runtime
+    paths:
+      - ".github/workflows/ch11-u06-core-experiment.yml"
+      - ".github/ch11_u06_core_experiment.py"
+      - ".github/ch11_u06_runtime_preflight.py"
+      - ".github/ch11_stage5_sequence_protocol_frozen.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-core:
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONHASHSEED: "0"
+      CUDA_VISIBLE_DEVICES: ""
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Provision exact Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14.7"
+          check-latest: true
+
+      - name: Install exact Stage-5 pins
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install \
+            numpy==2.5.3 \
+            scipy==1.18.1 \
+            pandas==3.0.6 \
+            torch==2.14.0 \
+            statsmodels==0.15.0 \
+            arch==8.0.0 \
+            matplotlib==3.11.2
+
+      - name: Locked runtime preflight
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python .github/ch11_u06_runtime_preflight.py | tee CH11_U06_RUNTIME_PREFLIGHT_STDOUT.txt
+
+      - name: Verify frozen protocol hash
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "ed846434ed58c3c0f9b70e5095ae194db6bb953e095bdf04bd66185a958ad283  .github/ch11_stage5_sequence_protocol_frozen.json" | sha256sum -c -
+
+      - name: Execute canonical U06 core experiment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python .github/ch11_u06_core_experiment.py | tee CH11_U06_CORE_EXPERIMENT_STDOUT.txt
+
+      - name: Freeze exact environment
+        if: always()
+        shell: bash
+        run: |
+          python -m pip freeze > CH11_U06_PIP_FREEZE_GITHUB_ACTIONS.txt
+
+      - name: Build evidence hashes
+        if: always()
+        shell: bash
+        run: |
+          find u06_results -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > CH11_U06_CANONICAL_RESULTS_SHA256.txt
+          sha256sum \
+            .github/ch11_u06_core_experiment.py \
+            .github/ch11_u06_runtime_preflight.py \
+            .github/ch11_stage5_sequence_protocol_frozen.json \
+            CH11_U06_RUNTIME_PREFLIGHT_STDOUT.txt \
+            CH11_U06_CORE_EXPERIMENT_STDOUT.txt \
+            CH11_U06_PIP_FREEZE_GITHUB_ACTIONS.txt \
+            >> CH11_U06_CANONICAL_RESULTS_SHA256.txt
+
+      - name: Upload canonical U06 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ch11-u06-canonical-core-results
+          if-no-files-found: error
+          path: |
+            u06_results/
+            CH11_U06_RUNTIME_PREFLIGHT_STDOUT.txt
+            CH11_U06_CORE_EXPERIMENT_STDOUT.txt
+            CH11_U06_PIP_FREEZE_GITHUB_ACTIONS.txt
+            CH11_U06_CANONICAL_RESULTS_SHA256.txt
+
