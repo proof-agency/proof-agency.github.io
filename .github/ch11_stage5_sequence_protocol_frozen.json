@@ -1,0 +1,214 @@
+{
+  "protocol_id": "CH11_STAGE5_V84_SEQUENCE_PROTOCOL_1",
+  "status": "FROZEN_BEFORE_EXECUTION",
+  "chapter": 11,
+  "dgp": {
+    "model": "latent_log_volatility_ar1_with_noisy_proxy_and_returns",
+    "mu": -4.0,
+    "phi": 0.97,
+    "sigma_eta": 0.15,
+    "sigma_epsilon": 0.2,
+    "s0": "mu",
+    "generated_n": 6500,
+    "burn_in": 500,
+    "retained_T": 6000,
+    "rng": "numpy.random.SeedSequence(seed).spawn(3)",
+    "child_stream_order": [
+      "eta",
+      "epsilon",
+      "z"
+    ],
+    "dgp_seeds": [
+      11011,
+      11022,
+      11033,
+      11044,
+      11055
+    ]
+  },
+  "indexing": {
+    "index_base": 1,
+    "train": [
+      1,
+      3600
+    ],
+    "validation": [
+      3601,
+      4800
+    ],
+    "test": [
+      4801,
+      6000
+    ],
+    "lookback": 50,
+    "horizons": [
+      1,
+      5,
+      20
+    ],
+    "phaseA_train_origins": [
+      50,
+      3599
+    ],
+    "phaseA_train_targets": [
+      51,
+      3600
+    ],
+    "phaseA_validation_origins": [
+      3600,
+      4799
+    ],
+    "phaseA_validation_targets": [
+      3601,
+      4800
+    ],
+    "phaseB_pretest_origins": [
+      50,
+      4799
+    ],
+    "phaseB_pretest_targets": [
+      51,
+      4800
+    ],
+    "test_origin_rule": "4800..6000-k inclusive",
+    "same_information_rule": "each core model may use only v[t-49:t] at origin t plus parameters estimated from the permitted fitting region"
+  },
+  "preprocessing": {
+    "phaseA_scaler_fit": [
+      1,
+      3600
+    ],
+    "phaseB_scaler_fit": [
+      1,
+      4800
+    ],
+    "test_scaler_update": false
+  },
+  "ar_baseline": {
+    "implementation": "statsmodels.tsa.arima.model.ARIMA",
+    "version": "0.15.0",
+    "candidate_p": [
+      1,
+      2,
+      5,
+      10
+    ],
+    "order_template": "(p,0,0)",
+    "trend": "c",
+    "selection_metric": "validation one-step RMSE on raw v scale",
+    "tie_break": "smaller p",
+    "phaseB_refit": [
+      1,
+      4800
+    ],
+    "multi_step": "recursive own forecasts"
+  },
+  "state_space_baseline": {
+    "implementation": "statsmodels.tsa.statespace.structural.UnobservedComponents",
+    "version": "0.15.0",
+    "kwargs": {
+      "level": false,
+      "trend": false,
+      "irregular": true,
+      "autoregressive": 1
+    },
+    "score_filter": "transparent scalar Kalman recursion with fixed fitted parameters",
+    "window_initialization": "stationary prior at each 50-observation scoring window, requires abs(phi_hat)<1",
+    "multi_step": "state prediction without fictitious measurement updates"
+  },
+  "rnn": {
+    "implementation": "torch.nn.RNN",
+    "torch_version": "2.14.0",
+    "input_size": 1,
+    "hidden_size": 16,
+    "num_layers": 1,
+    "nonlinearity": "tanh",
+    "batch_first": true,
+    "bidirectional": false,
+    "dropout": 0.0,
+    "readout": "Linear(16,1)",
+    "loss": "MSE on standardized next proxy",
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0,
+    "batch_size": 64,
+    "max_epochs": 200,
+    "patience": 20,
+    "early_stopping_metric": "validation one-step RMSE on standardized scale",
+    "min_delta_standardized_rmse": 1e-06,
+    "model_seeds": [
+      21011,
+      21022,
+      21033,
+      21044,
+      21055
+    ],
+    "shuffle_seeds": [
+      31011,
+      31022,
+      31033,
+      31044,
+      31055
+    ],
+    "phaseA_shuffle": true,
+    "validation_shuffle": false,
+    "phaseB_shuffle": true,
+    "phaseB_epochs": "E_star from paired Phase-A run",
+    "test_based_stopping": false,
+    "state_policy": "zero state at every indepent 50-step window; no carry across windows/batches/replicates",
+    "multi_step": "append own prediction, drop oldest value, reset h0, reprocess shifted 50-step window"
+  },
+  "metrics": {
+    "target": "raw-scale v[t+k]",
+    "primary": "RMSE",
+    "secondary": "MAE",
+    "aggregate": [
+      "mean",
+      "sample_sd_ddof1",
+      "median",
+      "n_completed"
+    ],
+    "interpretation": "descriptive across five predeclared paired protocol replicates; not an inferential uncertainty estimate",
+    "block_aggregate_if_any_core_replicate_failed": true
+  },
+  "garch_extension": {
+    "required_attempt": true,
+    "core_ranking": false,
+    "package": "arch",
+    "version": "8.0.0",
+    "spec": {
+      "mean": "Zero",
+      "vol": "GARCH",
+      "p": 1,
+      "o": 0,
+      "q": 1,
+      "dist": "normal",
+      "rescale": false
+    },
+    "input": "returns r_t",
+    "target": "conditional return variance / diagnostic against exp(s_t)",
+    "failure_effect": "extension artifact blocked and failure reported; core proxy comparison may remain valid if all core gates pass"
+  },
+  "runtime": {
+    "python": "3.14.7",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "pandas": "3.0.6",
+    "torch": "2.14.0",
+    "statsmodels": "0.15.0",
+    "arch": "8.0.0",
+    "matplotlib": "3.11.2",
+    "device": "cpu",
+    "torch_dtype": "float64",
+    "numpy_dtype": "float64",
+    "torch_num_threads": 1,
+    "torch_deterministic_algorithms": true,
+    "PYTHONHASHSEED": "0 (must be set before interpreter startup)"
+  },
+  "provenance_classes": [
+    "PROJECT-REPRODUCED",
+    "SOURCE-REPORTED",
+    "ANALYTIC"
+  ],
+  "no_fake_results": true
+}
