@@ -155,7 +155,7 @@
     "phaseB_shuffle": true,
     "phaseB_epochs": "E_star from paired Phase-A run",
     "test_based_stopping": false,
-    "state_policy": "zero state at every indepent 50-step window; no carry across windows/batches/replicates",
+    "state_policy": "zero state at every independent 50-step window; no carry across windows/batches/replicates",
     "multi_step": "append own prediction, drop oldest value, reset h0, reprocess shifted 50-step window"
   },
   "metrics": {
