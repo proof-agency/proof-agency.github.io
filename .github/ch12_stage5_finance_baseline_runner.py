@@ -42,6 +42,7 @@ def main():
     yte=np.array([int(r["label_id"]) for r in by["test"]])
     cand=[]
     for C in C_GRID:
+        # sklearn 1.9 deprecates `penalty`; l1_ratio=0.0 is the explicit L2 specification.
         clf=LogisticRegression(C=C,l1_ratio=0.0,solver="lbfgs",class_weight=None,fit_intercept=True,max_iter=1000,tol=1e-4)
         clf.fit(Xtr,ytr)
         pv=clf.predict(Xva); m=metrics(yva,pv)
