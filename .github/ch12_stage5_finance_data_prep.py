@@ -42,6 +42,7 @@ def apportion(n):
     return base
 
 def deterministic_assign(groups):
+    # groups: list of dict(group_id,label,record_ids,size)
     out={}
     for label in sorted({g["label"] for g in groups}):
         gl=[g for g in groups if g["label"]==label]
@@ -49,6 +50,7 @@ def deterministic_assign(groups):
         counts={k:0 for k in PROPORTIONS}
         gl.sort(key=lambda g:(-g["size"],horder(SPLIT_SEED,g["group_id"])))
         for g in gl:
+            # choose split with largest remaining deficit; ties train->validation->test
             deficits={k:target[k]-counts[k] for k in target}
             best=max(["train","validation","test"], key=lambda k:(deficits[k], -["train","validation","test"].index(k)))
             out[g["group_id"]]=best
@@ -81,11 +83,15 @@ def main():
         rows.append(dict(record_id=rid,source_line=lineno,sentence=sentence,label=label,label_id=LABELS[label],
                          normalized_text=n,exact_group_id=gid))
     if len(rows)!=2264: raise SystemExit(f"HOLD: expected 2264 rows, got {len(rows)}")
+
+    # exact duplicate groups and conflicting-label gate
     by={}
     for r in rows: by.setdefault(r["exact_group_id"],[]).append(r)
     for gid,rr in by.items():
         if len({x["label"] for x in rr})!=1:
             raise SystemExit(f"HOLD: conflicting labels in exact duplicate group {gid}")
+
+    # deterministic near-duplicate connected components on exact groups, within same label only.
     gids=list(by)
     parent={g:g for g in gids}
     def find(x):
@@ -104,6 +110,8 @@ def main():
             if min(len(s1),len(s2))/max(1,max(len(s1),len(s2))) < 0.80: continue
             if jac(cache[g1],cache[g2]) >= NEAR_DUP_CHAR5_JACCARD:
                 union(g1,g2)
+
+    # Merge exact groups into near-duplicate components.
     comp={}
     for gid,rr in by.items():
         root=find(gid)
@@ -113,10 +121,12 @@ def main():
         labs={x["label"] for x in rr}
         if len(labs)!=1: raise SystemExit(f"HOLD: conflicting labels in near-duplicate component {root}")
         groups.append({"group_id":root,"label":next(iter(labs)),"record_ids":[x["record_id"] for x in rr],"size":len(rr)})
+
     assign=deterministic_assign(groups)
     for r in rows:
         r["group_id"]=find(r["exact_group_id"])
         r["split"]=assign[r["group_id"]]
+
     with open(out/"CH12_FINANCE_RECORD_LEDGER.csv","w",newline="",encoding="utf-8") as f:
         w=csv.DictWriter(f,fieldnames=["record_id","source_line","sentence","label","label_id","normalized_text","exact_group_id","group_id","split"])
         w.writeheader(); w.writerows(rows)
