@@ -1,0 +1,168 @@
+name: CH12 U05 Finance Canonical Evidence
+on:
+  push:
+    branches:
+      - ch12-u05-finance
+    paths:
+      - ".github/ch12_stage5_finance_data_prep.py"
+      - ".github/ch12_stage5_finance_baseline_runner.py"
+      - ".github/ch12_stage5_finance_transformer_runner.py"
+      - ".github/workflows/ch12_u05_finance_canonical.yml"
+  workflow_dispatch:
+
+jobs:
+  finance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      PYTHONHASHSEED: "0"
+      TOKENIZERS_PARALLELISM: "false"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.7"
+
+      - name: Verify exact frozen executable bytes
+        run: |
+          sha256sum .github/ch12_stage5_finance_data_prep.py
+          sha256sum .github/ch12_stage5_finance_baseline_runner.py
+          sha256sum .github/ch12_stage5_finance_transformer_runner.py
+          test "$(sha256sum .github/ch12_stage5_finance_data_prep.py | awk '{print $1}')" = "d095a012e2fba40bacd4948f19a5f1d991752f1648600661f5c7507e1599eb9c"
+          test "$(sha256sum .github/ch12_stage5_finance_baseline_runner.py | awk '{print $1}')" = "08cb52f217439911b28bcc24a1d5662ad1a861759f387162d2459699204fd6aa"
+          test "$(sha256sum .github/ch12_stage5_finance_transformer_runner.py | awk '{print $1}')" = "5bac750717bd417f62eecc28110fbb322be5f2bcfcd32e685c872522e16e1ccf"
+
+      - name: Install exact direct runtime pins
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "torch==2.14.0" "scikit-learn==1.9.1" "transformers==5.17.0"
+          python - <<'PY'
+          import sys, torch, sklearn, transformers, json, platform, os
+          got={
+            "python":".".join(map(str,sys.version_info[:3])),
+            "torch":torch.__version__.split("+")[0],
+            "sklearn":sklearn.__version__,
+            "transformers":transformers.__version__,
+          }
+          expected={"python":"3.14.7","torch":"2.14.0","sklearn":"1.9.1","transformers":"5.17.0"}
+          assert got==expected,(got,expected)
+          assert os.environ["PYTHONHASHSEED"]=="0"
+          payload={"status":"PASS","versions":got,"platform":platform.platform(),"machine":platform.machine(),"processor":platform.processor()}
+          open("CH12_FINANCE_RUNTIME_IDENTITY.json","w",encoding="utf-8").write(json.dumps(payload,indent=2,sort_keys=True))
+          PY
+          python -m pip freeze > CH12_FINANCE_PIP_FREEZE.txt
+          python -m pip inspect > CH12_FINANCE_PIP_INSPECT.json
+
+      - name: Materialize exact immutable dataset and model assets
+        run: |
+          mkdir -p data model
+          curl -L --fail --retry 5 --retry-delay 3             "https://huggingface.co/datasets/takala/financial_phrasebank/resolve/170cd2fc2ae7f3dcb51653b4f008c39c906cdac9/data/FinancialPhraseBank-v1.0.zip?download=true"             -o data/FinancialPhraseBank-v1.0.zip
+          test "$(sha256sum data/FinancialPhraseBank-v1.0.zip | awk '{print $1}')" = "0e1a06c4900fdae46091d031068601e3773ba067c7cecb5b0da1dcba5ce989a6"
+
+          REV="12040accade4e8a0f71eabdb258fecc2e7e948be"
+          BASE="https://huggingface.co/distilbert/distilbert-base-uncased/resolve/$REV"
+          for f in config.json tokenizer.json tokenizer_config.json vocab.txt model.safetensors LICENSE; do
+            curl -L --fail --retry 5 --retry-delay 3 "$BASE/$f?download=true" -o "model/$f"
+          done
+          test "$(sha256sum model/model.safetensors | awk '{print $1}')" = "5e3f1108e3cb34ee048634875d8482665b65ac713291a7e32396fb18f6ff0063"
+
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path("model")
+          files=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file():
+                  h=hashlib.sha256(p.read_bytes()).hexdigest()
+                  files.append({"relative_path":p.name,"sha256":h,"bytes":p.stat().st_size})
+          payload={
+            "status":"PASS",
+            "repository":"distilbert/distilbert-base-uncased",
+            "revision":"12040accade4e8a0f71eabdb258fecc2e7e948be",
+            "license_reported":"Apache-2.0",
+            "files":files
+          }
+          Path("CH12_FINANCE_MODEL_ASSET_MANIFEST.json").write_text(json.dumps(payload,indent=2,sort_keys=True),encoding="utf-8")
+          PY
+          sha256sum data/FinancialPhraseBank-v1.0.zip > CH12_FINANCE_DATASET_ARCHIVE_SHA256.txt
+          sha256sum model/* > CH12_FINANCE_MODEL_FILES_SHA256.txt
+
+      - name: Data preparation gate
+        run: |
+          mkdir -p prep
+          python .github/ch12_stage5_finance_data_prep.py data/FinancialPhraseBank-v1.0.zip prep             > CH12_FINANCE_DATA_PREP_STDOUT.txt 2> CH12_FINANCE_DATA_PREP_STDERR.txt
+          cat CH12_FINANCE_DATA_PREP_STDOUT.txt
+          python - <<'PY'
+          import csv, hashlib, json
+          from pathlib import Path
+          ledger=Path("prep/CH12_FINANCE_RECORD_LEDGER.csv")
+          rows=list(csv.DictReader(ledger.open(encoding="utf-8",newline="")))
+          redacted=Path("prep/CH12_FINANCE_RECORD_LEDGER_NONTEXT.csv")
+          with redacted.open("w",encoding="utf-8",newline="") as f:
+              fields=["record_id","source_line","label","label_id","exact_group_id","group_id","split"]
+              w=csv.DictWriter(f,fieldnames=fields); w.writeheader()
+              for r in rows: w.writerow({k:r[k] for k in fields})
+          payload={
+            "full_record_ledger_sha256":hashlib.sha256(ledger.read_bytes()).hexdigest(),
+            "full_record_ledger_bytes":ledger.stat().st_size,
+            "n_records":len(rows),
+            "redacted_record_ledger_sha256":hashlib.sha256(redacted.read_bytes()).hexdigest()
+          }
+          Path("prep/CH12_FINANCE_RECORD_LEDGER_PROVENANCE.json").write_text(json.dumps(payload,indent=2,sort_keys=True),encoding="utf-8")
+          PY
+
+      - name: Baseline run
+        run: |
+          mkdir -p baseline
+          python .github/ch12_stage5_finance_baseline_runner.py prep/CH12_FINANCE_RECORD_LEDGER.csv baseline             > CH12_FINANCE_BASELINE_STDOUT.txt 2> CH12_FINANCE_BASELINE_STDERR.txt
+          cat CH12_FINANCE_BASELINE_STDOUT.txt
+
+      - name: Transformer transfer-classification run
+        run: |
+          mkdir -p transformer
+          python .github/ch12_stage5_finance_transformer_runner.py             prep/CH12_FINANCE_RECORD_LEDGER.csv model CH12_FINANCE_MODEL_ASSET_MANIFEST.json transformer             > CH12_FINANCE_TRANSFORMER_STDOUT.txt 2> CH12_FINANCE_TRANSFORMER_STDERR.txt
+          cat CH12_FINANCE_TRANSFORMER_STDOUT.txt
+
+      - name: Cross-model test-population and result QA
+        run: |
+          python - <<'PY'
+          import csv, json, hashlib
+          from pathlib import Path
+          base=list(csv.DictReader(open("baseline/CH12_BASELINE_TEST_PREDICTIONS.csv",encoding="utf-8",newline="")))
+          ids=[r["record_id"] for r in base]
+          checks={}
+          for seed in [12021,12022,12023]:
+              p=Path(f"transformer/CH12_TRANSFORMER_TEST_PREDICTIONS_SEED_{seed}.csv")
+              rr=list(csv.DictReader(p.open(encoding="utf-8",newline="")))
+              checks[str(seed)]={"same_ids_and_order":[r["record_id"] for r in rr]==ids,"n":len(rr)}
+              assert checks[str(seed)]["same_ids_and_order"]
+          agg=json.loads(Path("transformer/CH12_TRANSFORMER_AGGREGATE.json").read_text())
+          bm=json.loads(Path("baseline/CH12_BASELINE_METRICS.json").read_text())
+          payload={"status":"PASS","n_test":len(ids),"same_test_population":checks,"baseline":bm,"transformer_aggregate":agg}
+          Path("CH12_FINANCE_CROSS_MODEL_QA.json").write_text(json.dumps(payload,indent=2,sort_keys=True),encoding="utf-8")
+          PY
+
+      - name: Freeze evidence manifest
+        run: |
+          mkdir -p evidence
+          cp .github/ch12_stage5_finance_data_prep.py evidence/CH12_STAGE5_FINANCE_DATA_PREP.py
+          cp .github/ch12_stage5_finance_baseline_runner.py evidence/CH12_STAGE5_FINANCE_BASELINE_RUNNER.py
+          cp .github/ch12_stage5_finance_transformer_runner.py evidence/CH12_STAGE5_FINANCE_TRANSFORMER_RUNNER.py
+          cp CH12_FINANCE_RUNTIME_IDENTITY.json CH12_FINANCE_PIP_FREEZE.txt CH12_FINANCE_PIP_INSPECT.json evidence/
+          cp CH12_FINANCE_MODEL_ASSET_MANIFEST.json CH12_FINANCE_DATASET_ARCHIVE_SHA256.txt CH12_FINANCE_MODEL_FILES_SHA256.txt evidence/
+          cp prep/CH12_FINANCE_DATA_PREP_QA.json prep/CH12_FINANCE_SPLIT_LEDGER.csv prep/CH12_FINANCE_RECORD_LEDGER_NONTEXT.csv prep/CH12_FINANCE_RECORD_LEDGER_PROVENANCE.json evidence/
+          cp baseline/CH12_BASELINE_METRICS.json baseline/CH12_BASELINE_TEST_PREDICTIONS.csv evidence/
+          cp transformer/CH12_TRANSFORMER_AGGREGATE.json transformer/CH12_TRANSFORMER_METRICS_SEED_*.json transformer/CH12_TRANSFORMER_TEST_PREDICTIONS_SEED_*.csv evidence/
+          cp CH12_FINANCE_CROSS_MODEL_QA.json evidence/
+          cp CH12_FINANCE_DATA_PREP_STDOUT.txt CH12_FINANCE_DATA_PREP_STDERR.txt CH12_FINANCE_BASELINE_STDOUT.txt CH12_FINANCE_BASELINE_STDERR.txt CH12_FINANCE_TRANSFORMER_STDOUT.txt CH12_FINANCE_TRANSFORMER_STDERR.txt evidence/
+          (cd evidence && sha256sum * > CH12_FINANCE_CANONICAL_EVIDENCE_SHA256.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ch12-u05-finance-canonical-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
